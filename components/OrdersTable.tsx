@@ -42,6 +42,7 @@ export function OrdersTable() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [selectedItem, setSelectedItem] = useState<ItemStatus | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
+  const [docNoSort, setDocNoSort] = useState<'asc' | 'desc' | null>(null)
 
   const fetchItems = useCallback(async () => {
     setLoading(true)
@@ -76,7 +77,12 @@ export function OrdersTable() {
     setPanelOpen(true)
   }
 
-  const handleReset = () => setFilters(DEFAULT_FILTERS)
+  const handleReset = () => { setFilters(DEFAULT_FILTERS); setDocNoSort(null) }
+
+  const sortedItems = docNoSort === null ? items : [...items].sort((a, b) => {
+    const cmp = (a.doc_no ?? '').localeCompare(b.doc_no ?? '', undefined, { numeric: true })
+    return docNoSort === 'asc' ? cmp : -cmp
+  })
 
   return (
     <div className="space-y-4">
@@ -146,7 +152,12 @@ export function OrdersTable() {
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-50 hover:bg-gray-50">
-              <TableHead className="w-24">의뢰번호</TableHead>
+              <TableHead
+                className="w-24 cursor-pointer select-none hover:bg-gray-100"
+                onClick={() => setDocNoSort((s) => s === 'asc' ? 'desc' : 'asc')}
+              >
+                의뢰번호 {docNoSort === 'asc' ? '↑' : docNoSort === 'desc' ? '↓' : '↕'}
+              </TableHead>
               <TableHead className="min-w-[140px]">현장명</TableHead>
               <TableHead className="w-28">거래처</TableHead>
               <TableHead className="min-w-[160px]">품명</TableHead>
@@ -173,7 +184,7 @@ export function OrdersTable() {
                 </TableCell>
               </TableRow>
             ) : (
-              items.map((item) => (
+              sortedItems.map((item) => (
                 <TableRow
                   key={item.id}
                   className="cursor-pointer hover:bg-blue-50 transition-colors"
