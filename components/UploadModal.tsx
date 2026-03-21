@@ -172,7 +172,7 @@ export function UploadModal({ open, onOpenChange, onSuccess }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" showCloseButton>
+      <DialogContent className="max-w-5xl sm:max-w-4xl max-h-[90vh] overflow-y-auto" showCloseButton>
         <DialogHeader>
           <DialogTitle>발주서 등록</DialogTitle>
         </DialogHeader>
