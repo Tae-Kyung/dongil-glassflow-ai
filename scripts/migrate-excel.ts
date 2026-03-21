@@ -157,6 +157,7 @@ async function main() {
   // 통계
   let processed = 0, inserted = 0, skipped = 0
   const errors: Array<{ row: number; reason: string }> = []
+  const deletedDocIds = new Set<string>()  // doc_id별 첫 삽입 시만 기존 items 삭제
 
   for (let i = fromRow; i < raw.length; i++) {
     if (processed >= limit) break
@@ -237,8 +238,11 @@ async function main() {
 
       const docId = docData.id
 
-      // 2. order_items upsert (Excel = 행 1개당 품목 1개)
-      await supabase.from('glassflow_order_items').delete().eq('doc_id', docId)
+      // 2. order_items insert (같은 doc_id의 첫 행에서만 기존 items 삭제)
+      if (!deletedDocIds.has(docId)) {
+        await supabase.from('glassflow_order_items').delete().eq('doc_id', docId)
+        deletedDocIds.add(docId)
+      }
 
       const itemName = row[COL.ITEM_NAME] ? String(row[COL.ITEM_NAME]).trim() : null
 
