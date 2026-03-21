@@ -26,6 +26,12 @@ export function PdfUploader({ onUploadComplete }: Props) {
       return
     }
 
+    const MAX_MB = 4
+    if (file.size > MAX_MB * 1024 * 1024) {
+      setError(`파일 크기가 ${MAX_MB}MB를 초과합니다. (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+      return
+    }
+
     setError(null)
     setFileName(file.name)
     setIsUploading(true)
@@ -35,16 +41,22 @@ export function PdfUploader({ onUploadComplete }: Props) {
       formData.append('file', file)
 
       const res = await fetch('/api/upload', { method: 'POST', body: formData })
-      const data = await res.json()
+
+      let data: { error?: string } = {}
+      try {
+        data = await res.json()
+      } catch {
+        // Vercel이 HTML 에러 페이지를 반환한 경우 (예: 413)
+      }
 
       if (!res.ok) {
-        setError(data.error ?? '업로드에 실패했습니다.')
+        setError(data.error ?? `업로드에 실패했습니다. (HTTP ${res.status})`)
         return
       }
 
-      onUploadComplete(data)
-    } catch {
-      setError('네트워크 오류가 발생했습니다.')
+      onUploadComplete(data as Parameters<typeof onUploadComplete>[0])
+    } catch (e) {
+      setError(`네트워크 오류가 발생했습니다. (${e instanceof Error ? e.message : String(e)})`)
     } finally {
       setIsUploading(false)
     }
