@@ -35,7 +35,11 @@ const DEFAULT_FILTERS: Filters = {
   date_from: '', date_to: '', include_past: false,
 }
 
-export function OrdersTable() {
+interface Props {
+  refreshKey?: number
+}
+
+export function OrdersTable({ refreshKey }: Props = {}) {
   const [items, setItems] = useState<ItemStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
@@ -59,7 +63,7 @@ export function OrdersTable() {
     setLoading(false)
   }, [filters])
 
-  useEffect(() => { fetchItems() }, [fetchItems])
+  useEffect(() => { fetchItems() }, [fetchItems, refreshKey])
 
   // Supabase Realtime 구독
   useEffect(() => {

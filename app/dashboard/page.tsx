@@ -1,7 +1,14 @@
+'use client'
+
+import { useState } from 'react'
 import { OrdersTable } from '@/components/OrdersTable'
+import { UploadModal } from '@/components/UploadModal'
 import Link from 'next/link'
 
 export default function DashboardPage() {
+  const [modalOpen, setModalOpen] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* 헤더 */}
@@ -22,12 +29,12 @@ export default function DashboardPage() {
           >
             챗봇
           </Link>
-          <Link
-            href="/upload"
+          <button
+            onClick={() => setModalOpen(true)}
             className="text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors"
           >
             발주서 업로드
-          </Link>
+          </button>
         </nav>
       </header>
 
@@ -37,8 +44,14 @@ export default function DashboardPage() {
           <h2 className="text-xl font-bold text-gray-900">발주 현황</h2>
           <p className="text-sm text-gray-500 mt-1">행 클릭 시 생산·출고 로그를 입력할 수 있습니다.</p>
         </div>
-        <OrdersTable />
+        <OrdersTable refreshKey={refreshKey} />
       </main>
+
+      <UploadModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        onSuccess={() => setRefreshKey((k) => k + 1)}
+      />
     </div>
   )
 }
