@@ -83,9 +83,15 @@ export function OrdersTable({ refreshKey }: Props = {}) {
 
   const handleReset = () => { setFilters(DEFAULT_FILTERS); setDocNoSort('desc') }
 
+  const STATUS_ORDER: Record<string, number> = {
+    pending: 0, in_progress: 1, produced: 2, partial: 3, shipped: 4,
+  }
+
   const sortedItems = docNoSort === null ? items : [...items].sort((a, b) => {
     const cmp = (a.doc_no ?? '').localeCompare(b.doc_no ?? '', undefined, { numeric: true })
-    return docNoSort === 'asc' ? cmp : -cmp
+    const docCmp = docNoSort === 'asc' ? cmp : -cmp
+    if (docCmp !== 0) return docCmp
+    return (STATUS_ORDER[a.status] ?? 0) - (STATUS_ORDER[b.status] ?? 0)
   })
 
   return (
