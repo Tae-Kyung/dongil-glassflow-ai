@@ -104,6 +104,11 @@ export function OrdersTable() {
             ))}
           </SelectContent>
         </Select>
+        <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+          <input type="checkbox" checked={filters.include_past}
+            onChange={(e) => setFilters({ ...filters, include_past: e.target.checked })} />
+          이전 데이터 포함
+        </label>
         <Button variant="outline" size="sm" onClick={() => setShowAdvanced((v) => !v)}>
           {showAdvanced ? '▲ 접기' : '▼ 고급검색'}
         </Button>
@@ -123,11 +128,6 @@ export function OrdersTable() {
               onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
               className="w-40" />
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={filters.include_past}
-              onChange={(e) => setFilters({ ...filters, include_past: e.target.checked })} />
-            과거 납기 포함
-          </label>
         </div>
       )}
 

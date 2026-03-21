@@ -22,10 +22,11 @@ const SHEET_NAME = '발주현황'
 // 컬럼 인덱스 (0-based)
 const COL = {
   DOC_NO:       0,   // A: 의뢰번호
-  CUSTOMER:     1,   // B: 거래처
+  CUSTOMER:     1,   // B: 거래처/업체명
   SITE_NAME:    2,   // C: 현장명
   ORDER_QTY:    3,   // D: 의뢰수량
-  TPS:          7,   // H: TPS 일자
+  ITEM_NAME:    6,   // G: 품명 (신형식 행 3178~)
+  TPS:          7,   // H: TPS 일자 (구형식) / 비고 (신형식)
   ARRIVAL:     10,   // K: 주문서도착일
   REQUEST_DATE:11,   // L: 생산의뢰일
   DUE_DATE:    12,   // M: 납품요청일
@@ -239,9 +240,11 @@ async function main() {
       // 2. order_items upsert (Excel = 행 1개당 품목 1개)
       await supabase.from('glassflow_order_items').delete().eq('doc_id', docId)
 
+      const itemName = row[COL.ITEM_NAME] ? String(row[COL.ITEM_NAME]).trim() : null
+
       const { data: itemData, error: itemErr } = await supabase
         .from('glassflow_order_items')
-        .insert({ doc_id: docId, order_qty: orderQty || null })
+        .insert({ doc_id: docId, item_name: itemName, order_qty: orderQty || null })
         .select('id')
         .single()
 

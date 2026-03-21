@@ -18,7 +18,8 @@ export async function GET(request: NextRequest) {
     .limit(500)
 
   if (!include_past && !date_from) {
-    query = query.gte('due_date', new Date().toISOString().slice(0, 10))
+    const today = new Date().toISOString().slice(0, 10)
+    query = query.or(`due_date.gte.${today},due_date.is.null`)
   }
   if (date_from) query = query.gte('due_date', date_from)
   if (date_to)   query = query.lte('due_date', date_to)
