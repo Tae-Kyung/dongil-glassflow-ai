@@ -14,8 +14,8 @@ declare
 begin
   upper_query := upper(trim(query));
 
-  -- SELECT 외 DML 차단
-  if upper_query not like 'SELECT%' then
+  -- SELECT 또는 CTE(WITH) 외 DML 차단
+  if upper_query not like 'SELECT%' and upper_query not like 'WITH%' then
     raise exception 'SELECT 쿼리만 허용됩니다.';
   end if;
 

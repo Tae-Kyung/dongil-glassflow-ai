@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { openai } from '@/lib/openai'
 import { searchSite } from '@/lib/site-search'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 import type { ChatMessage } from '@/types'
 
 // glassflow_item_status VIEW 스키마 (SQL 생성 시 Hallucination 방지)
@@ -111,12 +111,19 @@ export async function POST(request: NextRequest) {
     ],
   })
 
-  const generatedSql = sqlRes.choices[0].message.content?.trim() ?? ''
+  // 마크다운 코드블록 제거 (```sql ... ``` 또는 ``` ... ```) 및 trailing 세미콜론 제거
+  const rawSql = sqlRes.choices[0].message.content?.trim() ?? ''
+  const generatedSql = rawSql.replace(/^```(?:sql)?\s*/i, '').replace(/\s*```$/, '').trim().replace(/;+$/, '')
 
   // DML 안전 검사
   const upperSql = generatedSql.toUpperCase()
   const dangerKeywords = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'TRUNCATE', 'ALTER', 'CREATE']
   if (dangerKeywords.some((kw) => upperSql.includes(kw))) {
+    return streamText('죄송합니다. 데이터 조회 질문만 처리할 수 있습니다.')
+  }
+
+  // SELECT 또는 CTE(WITH)로 시작하지 않으면 차단
+  if (!upperSql.startsWith('SELECT') && !upperSql.startsWith('WITH')) {
     return streamText('죄송합니다. 데이터 조회 질문만 처리할 수 있습니다.')
   }
 
