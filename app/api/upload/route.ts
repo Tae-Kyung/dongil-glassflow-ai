@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+export const maxDuration = 60
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { openai } from '@/lib/openai'
 import { embedText } from '@/lib/openai'
