@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import { Button } from '@/components/ui/button'
 
 interface Props {
   onUploadComplete: (result: UploadResult) => void
@@ -14,9 +13,18 @@ interface UploadResult {
   item_count: number
 }
 
+type UploadStep = 'idle' | 'uploading' | 'parsing' | 'done'
+
+const STEP_LABEL: Record<UploadStep, string> = {
+  idle: '',
+  uploading: '파일 업로드 중...',
+  parsing: 'AI 파싱 중... (최대 60초)',
+  done: '',
+}
+
 export function PdfUploader({ onUploadComplete }: Props) {
   const [isDragging, setIsDragging] = useState(false)
-  const [isUploading, setIsUploading] = useState(false)
+  const [step, setStep] = useState<UploadStep>('idle')
   const [error, setError] = useState<string | null>(null)
   const [fileName, setFileName] = useState<string | null>(null)
 
@@ -26,39 +34,57 @@ export function PdfUploader({ onUploadComplete }: Props) {
       return
     }
 
-    const MAX_MB = 4
-    if (file.size > MAX_MB * 1024 * 1024) {
-      setError(`파일 크기가 ${MAX_MB}MB를 초과합니다. (현재 ${(file.size / 1024 / 1024).toFixed(1)}MB)`)
-      return
-    }
-
     setError(null)
     setFileName(file.name)
-    setIsUploading(true)
 
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const res = await fetch('/api/upload', { method: 'POST', body: formData })
-
-      let data: { error?: string } = {}
-      try {
-        data = await res.json()
-      } catch {
-        // Vercel이 HTML 에러 페이지를 반환한 경우 (예: 413)
+      // 1단계: 서명된 업로드 URL 발급
+      setStep('uploading')
+      const urlRes = await fetch('/api/upload-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name }),
+      })
+      if (!urlRes.ok) {
+        const d = await urlRes.json().catch(() => ({}))
+        setError(d.error ?? `업로드 URL 발급 실패 (HTTP ${urlRes.status})`)
+        return
       }
+      const { signedUrl, storagePath } = await urlRes.json()
 
-      if (!res.ok) {
-        setError(data.error ?? `업로드에 실패했습니다. (HTTP ${res.status})`)
+      // 2단계: Supabase Storage에 직접 업로드 (크기 제한 없음)
+      const putRes = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: file,
+      })
+      if (!putRes.ok) {
+        setError(`Storage 업로드 실패 (HTTP ${putRes.status})`)
         return
       }
 
-      onUploadComplete(data as Parameters<typeof onUploadComplete>[0])
+      // 3단계: 서버에서 AI 파싱 + DB 저장
+      setStep('parsing')
+      const parseRes = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath }),
+      })
+
+      let data: { error?: string } = {}
+      try { data = await parseRes.json() } catch { /* HTML 에러 페이지 대비 */ }
+
+      if (!parseRes.ok) {
+        setError(data.error ?? `파싱 실패 (HTTP ${parseRes.status})`)
+        return
+      }
+
+      setStep('done')
+      onUploadComplete(data as UploadResult)
     } catch (e) {
-      setError(`네트워크 오류가 발생했습니다. (${e instanceof Error ? e.message : String(e)})`)
+      setError(`오류가 발생했습니다. (${e instanceof Error ? e.message : String(e)})`)
     } finally {
-      setIsUploading(false)
+      setStep('idle')
     }
   }, [onUploadComplete])
 
@@ -73,6 +99,8 @@ export function PdfUploader({ onUploadComplete }: Props) {
     const file = e.target.files?.[0]
     if (file) handleFile(file)
   }
+
+  const isUploading = step !== 'idle' && step !== 'done'
 
   return (
     <div className="space-y-4">
@@ -90,7 +118,7 @@ export function PdfUploader({ onUploadComplete }: Props) {
         {isUploading ? (
           <div className="flex flex-col items-center gap-3">
             <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-            <p className="text-sm text-gray-600">파싱 중... (최대 30초)</p>
+            <p className="text-sm text-gray-600">{STEP_LABEL[step]}</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 text-center px-4">
@@ -101,7 +129,7 @@ export function PdfUploader({ onUploadComplete }: Props) {
             <p className="text-sm font-medium text-gray-700">
               {fileName ?? 'PDF 파일을 드래그하거나 클릭하여 업로드'}
             </p>
-            <p className="text-xs text-gray-500">발주서 PDF (스캔본 포함)</p>
+            <p className="text-xs text-gray-500">발주서 PDF (스캔본 포함, 크기 제한 없음)</p>
           </div>
         )}
         <input

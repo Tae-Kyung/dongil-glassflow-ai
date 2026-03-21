@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-export const maxDuration = 60
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { openai } from '@/lib/openai'
 import { embedText } from '@/lib/openai'
 import { preparePdfForVision } from '@/lib/pdf-parser'
 import type { ParsedPdfResult } from '@/types'
+
+export const maxDuration = 60
 
 const VISION_SYSTEM_PROMPT = `당신은 유리 제조업체의 작업 의뢰서(발주서) PDF를 분석하는 전문가입니다.
 이미지에서 다음 필드를 정확하게 추출하여 JSON으로 반환하세요.
@@ -33,37 +33,28 @@ const VISION_SYSTEM_PROMPT = `당신은 유리 제조업체의 작업 의뢰서(
 
 export async function POST(request: NextRequest) {
   try {
-    const formData = await request.formData()
-    const file = formData.get('file') as File | null
+    // storagePath를 받아 Supabase Storage에서 파일 다운로드
+    const { storagePath } = await request.json()
 
-    if (!file) {
-      return NextResponse.json({ error: '파일이 없습니다.' }, { status: 400 })
-    }
-    if (!file.name.toLowerCase().endsWith('.pdf')) {
-      return NextResponse.json({ error: 'PDF 파일만 업로드 가능합니다.' }, { status: 400 })
+    if (!storagePath) {
+      return NextResponse.json({ error: 'storagePath가 없습니다.' }, { status: 400 })
     }
 
-    const buffer = Buffer.from(await file.arrayBuffer())
-
-    // 1. Supabase Storage에 원본 PDF 저장
-    const fileName = `${Date.now()}_${file.name}`
-    const { data: storageData, error: storageError } = await supabaseAdmin.storage
+    const { data: fileData, error: downloadError } = await supabaseAdmin.storage
       .from('order-pdfs')
-      .upload(fileName, buffer, { contentType: 'application/pdf' })
+      .download(storagePath)
 
-    if (storageError) {
-      console.error('Storage upload error:', storageError)
-      // Storage 실패해도 파싱은 계속 진행
+    if (downloadError || !fileData) {
+      return NextResponse.json({ error: `파일 다운로드 실패: ${downloadError?.message}` }, { status: 500 })
     }
 
-    const rawPdfUrl = storageData
-      ? supabaseAdmin.storage.from('order-pdfs').getPublicUrl(storageData.path).data.publicUrl
-      : null
+    const buffer = Buffer.from(await fileData.arrayBuffer())
+    const rawPdfUrl = supabaseAdmin.storage.from('order-pdfs').getPublicUrl(storagePath).data.publicUrl
 
-    // 2. PDF → 이미지 변환
+    // PDF → 이미지 변환
     const visionContent = await preparePdfForVision(buffer)
 
-    // 3. GPT-4o Vision으로 필드 추출
+    // GPT-4o Vision으로 필드 추출
     const visionResponse = await openai.chat.completions.create({
       model: 'gpt-4o',
       max_tokens: 4096,
@@ -92,10 +83,10 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 4. site_name 임베딩 생성
+    // site_name 임베딩 생성
     const embedding = await embedText(parsed.site_name)
 
-    // 5. order_docs upsert (doc_no 기준)
+    // order_docs upsert (doc_no 기준)
     const { data: docData, error: docError } = await supabaseAdmin
       .from('glassflow_order_docs')
       .upsert(
@@ -122,28 +113,24 @@ export async function POST(request: NextRequest) {
 
     const docId = docData.id
 
-    // 6. 기존 order_items 삭제 (cascade로 logs도 삭제됨)
-    await supabaseAdmin
-      .from('glassflow_order_items')
-      .delete()
-      .eq('doc_id', docId)
+    // 기존 order_items 삭제 후 재삽입
+    await supabaseAdmin.from('glassflow_order_items').delete().eq('doc_id', docId)
 
-    // 7. order_items 일괄 삽입
     if (parsed.items && parsed.items.length > 0) {
-      const itemRows = parsed.items.map((item) => ({
-        doc_id: docId,
-        item_no: item.item_no,
-        item_name: item.item_name,
-        width_mm: item.width_mm,
-        height_mm: item.height_mm,
-        order_qty: item.order_qty,
-        area_m2: item.area_m2,
-        location: item.location,
-      }))
-
       const { error: itemsError } = await supabaseAdmin
         .from('glassflow_order_items')
-        .insert(itemRows)
+        .insert(
+          parsed.items.map((item) => ({
+            doc_id: docId,
+            item_no: item.item_no,
+            item_name: item.item_name,
+            width_mm: item.width_mm,
+            height_mm: item.height_mm,
+            order_qty: item.order_qty,
+            area_m2: item.area_m2,
+            location: item.location,
+          }))
+        )
 
       if (itemsError) {
         console.error('order_items insert error:', itemsError)
