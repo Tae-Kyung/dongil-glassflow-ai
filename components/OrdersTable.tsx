@@ -46,7 +46,7 @@ export function OrdersTable({ refreshKey }: Props = {}) {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [selectedItem, setSelectedItem] = useState<ItemStatus | null>(null)
   const [panelOpen, setPanelOpen] = useState(false)
-  const [docNoSort, setDocNoSort] = useState<'asc' | 'desc' | null>(null)
+  const [docNoSort, setDocNoSort] = useState<'asc' | 'desc' | null>('desc')
 
   const fetchItems = useCallback(async () => {
     setLoading(true)
@@ -81,7 +81,7 @@ export function OrdersTable({ refreshKey }: Props = {}) {
     setPanelOpen(true)
   }
 
-  const handleReset = () => { setFilters(DEFAULT_FILTERS); setDocNoSort(null) }
+  const handleReset = () => { setFilters(DEFAULT_FILTERS); setDocNoSort('desc') }
 
   const sortedItems = docNoSort === null ? items : [...items].sort((a, b) => {
     const cmp = (a.doc_no ?? '').localeCompare(b.doc_no ?? '', undefined, { numeric: true })
