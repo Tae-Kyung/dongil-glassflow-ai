@@ -37,7 +37,7 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const items: RiskItem[] = (data ?? []).map((item) => {
-    const due   = new Date(item.due_date)
+    const due    = new Date(item.due_date)
     const todayD = new Date(today)
     const msPerDay = 24 * 60 * 60 * 1000
     const days_left = Math.round((due.getTime() - todayD.getTime()) / msPerDay)
