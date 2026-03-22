@@ -43,6 +43,9 @@ export default function AnalyticsPage() {
     fetch('/api/analytics').then(r => r.json()).then(d => { setData(d); setLoading(false) })
   }, [])
 
+  const currentMonth = new Date().toISOString().slice(0, 7) // "2026-03"
+  const currentMonthData = data?.monthly.find(m => m.month === currentMonth)
+
   const chartData = data?.monthly.map(m => ({
     name: fmtMonth(m.month),
     총건수: m.total,
@@ -108,19 +111,19 @@ export default function AnalyticsPage() {
               />
               <SummaryCard
                 label="이번달 납기 건수"
-                value={`${(data?.monthly.at(-1)?.total ?? 0).toLocaleString()}건`}
-                sub={`출고완료 ${data?.monthly.at(-1)?.shipped ?? 0}건`}
+                value={`${(currentMonthData?.total ?? 0).toLocaleString()}건`}
+                sub={`출고완료 ${currentMonthData?.shipped ?? 0}건`}
                 color="blue"
               />
               <SummaryCard
                 label="이번달 발주 수량"
-                value={`${(data?.monthly.at(-1)?.order_qty ?? 0).toLocaleString()}매`}
-                sub={`생산 ${(data?.monthly.at(-1)?.produced_qty ?? 0).toLocaleString()}매`}
+                value={`${(currentMonthData?.order_qty ?? 0).toLocaleString()}매`}
+                sub={`생산 ${(currentMonthData?.produced_qty ?? 0).toLocaleString()}매`}
                 color="indigo"
               />
               <SummaryCard
                 label="이번달 발주 면적"
-                value={`${(data?.monthly.at(-1)?.area_m2 ?? 0).toLocaleString()}m²`}
+                value={`${(currentMonthData?.area_m2 ?? 0).toLocaleString()}m²`}
                 sub="납기 기준"
                 color="gray"
               />

@@ -4,13 +4,15 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 export async function GET() {
   const today = new Date().toISOString().slice(0, 10)
 
-  // 최근 12개월 범위
+  // 최근 12개월 범위 (이번달 말까지)
   const from12m = new Date()
   from12m.setMonth(from12m.getMonth() - 11)
   from12m.setDate(1)
   const rangeStart = from12m.toISOString().slice(0, 10)
+  const rangeEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
+    .toISOString().slice(0, 10)
 
-  // 납기일이 있는 품목 전체 조회 (최근 12개월)
+  // 납기일이 있는 품목 전체 조회 (최근 12개월, 이번달 말까지)
   let all: any[] = []
   let offset = 0
   while (true) {
@@ -18,6 +20,7 @@ export async function GET() {
       .from('glassflow_item_status')
       .select('due_date, order_qty, area_m2, status, total_produced_qty, total_shipped_qty')
       .gte('due_date', rangeStart)
+      .lte('due_date', rangeEnd)
       .not('due_date', 'is', null)
       .range(offset, offset + 999)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
