@@ -54,6 +54,8 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
     setLoading(true)
     const params = new URLSearchParams()
 
+    const yearStart = `${new Date().getFullYear()}-01-01`
+
     if (quickFilter === 'overdue') {
       params.set('overdue', 'true')
     } else if (quickFilter === 'this_week') {
@@ -68,6 +70,14 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
       params.set('date_from', monthStart)
       params.set('date_to', monthEnd)
       params.set('include_past', 'true')
+    } else if (quickFilter === 'all_this_year') {
+      params.set('date_from', yearStart)
+      params.set('include_past', 'true')
+    } else if (quickFilter?.startsWith('status_')) {
+      const status = quickFilter.replace('status_', '')
+      params.set('date_from', yearStart)
+      params.set('include_past', 'true')
+      params.set('status', status)
     } else {
       if (filters.site_name)    params.set('site_name', filters.site_name)
       if (filters.customer)     params.set('customer', filters.customer)
@@ -183,11 +193,17 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
         </span>
         {quickFilter && (
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-            quickFilter === 'overdue'    ? 'bg-red-100 text-red-600' :
-            quickFilter === 'this_week'  ? 'bg-amber-100 text-amber-600' :
-                                          'bg-blue-100 text-blue-600'
+            quickFilter === 'overdue'   ? 'bg-red-100 text-red-600' :
+            quickFilter === 'this_week' ? 'bg-amber-100 text-amber-600' :
+            quickFilter.startsWith('status_') ? 'bg-gray-100 text-gray-600' :
+                                         'bg-blue-100 text-blue-600'
           }`}>
-            {{ overdue: '납기 초과', this_week: '이번주 납기', this_month: '이번달 납기' }[quickFilter]} 필터 적용중
+            {{
+              overdue: '납기 초과', this_week: '이번주 납기', this_month: '이번달 납기',
+              all_this_year: '올해 전체',
+              status_pending: '생산대기', status_in_progress: '생산중',
+              status_produced: '생산완료', status_partial: '일부출고', status_shipped: '출고완료',
+            }[quickFilter] ?? quickFilter} 필터 적용중
           </span>
         )}
       </div>
