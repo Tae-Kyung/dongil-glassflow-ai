@@ -13,11 +13,11 @@ export async function GET() {
     pendingRes, inProgressRes, producedRes, partialRes, shippedRes,
     overdueRes, dueThisWeekRes, dueThisMonthRes,
   ] = await Promise.all([
-    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
-    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'in_progress'),
-    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'produced'),
-    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'partial'),
-    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'shipped'),
+    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).gte('due_date', yearStart).eq('status', 'pending'),
+    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).gte('due_date', yearStart).eq('status', 'in_progress'),
+    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).gte('due_date', yearStart).eq('status', 'produced'),
+    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).gte('due_date', yearStart).eq('status', 'partial'),
+    supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).gte('due_date', yearStart).eq('status', 'shipped'),
     // 납기 초과: 올해 납기일 < 오늘 & 미출고
     supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true })
       .gte('due_date', yearStart).lt('due_date', today).not('status', 'eq', 'shipped'),
