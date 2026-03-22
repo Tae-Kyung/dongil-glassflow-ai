@@ -23,6 +23,12 @@ export default function ChatPage() {
             대시보드
           </Link>
           <Link
+            href="/analytics"
+            className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            경영 현황
+          </Link>
+          <Link
             href="/upload"
             className="text-sm text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-lg transition-colors"
           >

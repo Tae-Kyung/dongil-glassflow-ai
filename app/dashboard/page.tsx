@@ -27,6 +27,12 @@ export default function DashboardPage() {
         </div>
         <nav className="flex gap-3">
           <Link
+            href="/analytics"
+            className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            경영 현황
+          </Link>
+          <Link
             href="/chat"
             className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
