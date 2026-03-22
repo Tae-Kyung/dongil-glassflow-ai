@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     query = query.lt('due_date', today).neq('status', 'shipped')
   } else {
     if (!include_past && !date_from) {
-      query = query.or(`due_date.gte.${today},due_date.is.null`)
+      query = query.gte('due_date', today)
     }
     if (date_from) query = query.gte('due_date', date_from)
     if (date_to)   query = query.lte('due_date', date_to)
