@@ -70,7 +70,7 @@ export function StatsBar({ activeFilter, onFilterChange }: Props) {
           <p className={`text-2xl font-bold ${stats.overdue > 0 ? 'text-red-600' : 'text-gray-400'}`}>
             {stats.overdue.toLocaleString()}건
           </p>
-          <p className="text-xs text-gray-400 mt-1">미출고 기준 {activeFilter === 'overdue' && <span className="text-red-500 font-medium">· 필터중</span>}</p>
+          <p className="text-xs text-gray-400 mt-1">올해 미출고 기준 {activeFilter === 'overdue' && <span className="text-red-500 font-medium">· 필터중</span>}</p>
         </button>
 
         {/* 이번주 납기 */}

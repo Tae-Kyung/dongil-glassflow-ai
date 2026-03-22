@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export async function GET() {
   const today = new Date().toISOString().slice(0, 10)
+  const yearStart = `${new Date().getFullYear()}-01-01`
   const weekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const monthStart = today.slice(0, 8) + '01'
   const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0)
@@ -17,9 +18,9 @@ export async function GET() {
     supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'produced'),
     supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'partial'),
     supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true }).eq('status', 'shipped'),
-    // 납기 초과: 납기일 < 오늘 & 미출고
+    // 납기 초과: 올해 납기일 < 오늘 & 미출고
     supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true })
-      .lt('due_date', today).not('status', 'eq', 'shipped'),
+      .gte('due_date', yearStart).lt('due_date', today).not('status', 'eq', 'shipped'),
     // 이번주 납기: 오늘 ~ 7일 후 & 미출고
     supabaseAdmin.from('glassflow_item_status').select('*', { count: 'exact', head: true })
       .gte('due_date', today).lte('due_date', weekLater).not('status', 'eq', 'shipped'),

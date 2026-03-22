@@ -13,6 +13,7 @@ export async function GET(request: NextRequest) {
   const overdue    = searchParams.get('overdue') === 'true'
 
   const today = new Date().toISOString().slice(0, 10)
+  const yearStart = `${new Date().getFullYear()}-01-01`
 
   let query = supabaseAdmin
     .from('glassflow_item_status')
@@ -21,8 +22,8 @@ export async function GET(request: NextRequest) {
     .limit(500)
 
   if (overdue) {
-    // 납기 초과: due_date < 오늘 & 미출고
-    query = query.lt('due_date', today).neq('status', 'shipped')
+    // 납기 초과: 올해 납기일 < 오늘 & 미출고
+    query = query.gte('due_date', yearStart).lt('due_date', today).neq('status', 'shipped')
   } else {
     if (!include_past && !date_from) {
       query = query.gte('due_date', today)
