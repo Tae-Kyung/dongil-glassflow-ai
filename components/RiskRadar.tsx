@@ -22,6 +22,7 @@ export function RiskRadar() {
   const [data, setData] = useState<RiskData | null>(null)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'critical' | 'danger' | 'warning'>('all')
+  const [expanded, setExpanded] = useState(false)
 
   useEffect(() => {
     fetch('/api/risk').then(r => r.json()).then(d => { setData(d); setLoading(false) })
@@ -31,7 +32,7 @@ export function RiskRadar() {
   const filtered = data?.items.filter(i => filter === 'all' || i.risk === filter) ?? []
 
   if (loading) {
-    return <div className="bg-white rounded-xl border p-6 h-64 animate-pulse" />
+    return <div className="bg-white rounded-xl border p-6 h-40 animate-pulse" />
   }
 
   return (
@@ -47,8 +48,8 @@ export function RiskRadar() {
         )}
       </div>
 
-      {/* 요약 카드 */}
-      <div className="grid grid-cols-3 gap-4 p-4 border-b">
+      {/* 요약 카드 - 항상 표시 */}
+      <div className="grid grid-cols-3 gap-4 p-4">
         {(['critical', 'danger', 'warning'] as const).map((level) => {
           const cfg = RISK_CONFIG[level]
           const count = data?.summary[level] ?? 0
@@ -56,7 +57,14 @@ export function RiskRadar() {
           return (
             <button
               key={level}
-              onClick={() => setFilter(active ? 'all' : level)}
+              onClick={() => {
+                if (active) {
+                  setFilter('all')
+                } else {
+                  setFilter(level)
+                  setExpanded(true)
+                }
+              }}
               className={`rounded-lg border p-3 text-left transition-all ${cfg.bg} ${cfg.border} ${active ? 'ring-2 ring-offset-1 ring-gray-400' : 'hover:opacity-80'}`}
             >
               <div className="flex items-center gap-1.5 mb-1">
@@ -74,13 +82,21 @@ export function RiskRadar() {
         })}
       </div>
 
-      {/* 목록 */}
-      {total === 0 ? (
-        <div className="px-6 py-12 text-center text-gray-400 text-sm">
-          위험 품목이 없습니다 ✓
+      {/* 펼치기/접기 토글 */}
+      {total > 0 && (
+        <div className="border-t">
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="w-full px-6 py-2.5 flex items-center justify-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 hover:bg-gray-50 transition-colors"
+          >
+            {expanded ? '▲ 목록 접기' : `▼ 목록 보기 (${filtered.length}건)`}
+          </button>
         </div>
-      ) : (
-        <div className="overflow-x-auto">
+      )}
+
+      {/* 목록 - 펼쳤을 때만 표시 */}
+      {expanded && total > 0 && (
+        <div className="border-t overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
               <tr>
