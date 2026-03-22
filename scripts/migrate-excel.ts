@@ -2,10 +2,12 @@
  * 발주현황.xlsx → Supabase DB 마이그레이션 스크립트
  *
  * 사용법:
- *   npx tsx scripts/migrate-excel.ts --dry-run          # 드라이런 (DB 저장 없음)
- *   npx tsx scripts/migrate-excel.ts --run              # 실제 저장
- *   npx tsx scripts/migrate-excel.ts --run --limit=100  # 처음 100행만
- *   npx tsx scripts/migrate-excel.ts --run --from=3178  # 특정 행부터
+ *   npx tsx scripts/migrate-excel.ts --dry-run                    # 드라이런 (DB 저장 없음)
+ *   npx tsx scripts/migrate-excel.ts --run                      # 실제 저장
+ *   npx tsx scripts/migrate-excel.ts --run --limit=100          # 처음 100행만
+ *   npx tsx scripts/migrate-excel.ts --run --from=3178          # 특정 행부터
+ *   npx tsx scripts/migrate-excel.ts --run --doc-no=25-3020     # 특정 의뢰번호만 재처리
+ *   npx tsx scripts/migrate-excel.ts --run --years=24,25,26     # 특정 연도만 처리
  */
 
 import * as XLSX from 'xlsx'
@@ -129,16 +131,23 @@ function parseLogCell(raw: unknown, seq: number, orderQty: number, docNo: string
 // ── 메인 ──────────────────────────────────────────────────────
 async function main() {
   const args = process.argv.slice(2)
-  const isDryRun = !args.includes('--run')
-  const limitArg = args.find((a) => a.startsWith('--limit='))
-  const fromArg  = args.find((a) => a.startsWith('--from='))
-  const limit    = limitArg ? Number(limitArg.split('=')[1]) : Infinity
-  const fromRow  = fromArg  ? Number(fromArg.split('=')[1])  : 1
+  const isDryRun  = !args.includes('--run')
+  const limitArg  = args.find((a) => a.startsWith('--limit='))
+  const fromArg   = args.find((a) => a.startsWith('--from='))
+  const docNoArg  = args.find((a) => a.startsWith('--doc-no='))
+  const yearsArg  = args.find((a) => a.startsWith('--years='))
+  const limit     = limitArg ? Number(limitArg.split('=')[1]) : Infinity
+  const fromRow   = fromArg  ? Number(fromArg.split('=')[1])  : 1
+  const filterDocNo   = docNoArg ? docNoArg.split('=')[1] : null
+  const filterYears   = yearsArg ? yearsArg.split('=')[1].split(',').map((y) => y.trim()) : null
 
   console.log(`\n=== GlassFlow Excel Migration ===`)
   console.log(`모드: ${isDryRun ? 'DRY-RUN (저장 없음)' : '실제 저장'}`)
   console.log(`파일: ${EXCEL_PATH}`)
-  console.log(`시작 행: ${fromRow}, 최대: ${limit === Infinity ? '전체' : limit}행\n`)
+  if (filterDocNo)  console.log(`필터: 의뢰번호 = ${filterDocNo}`)
+  if (filterYears)  console.log(`필터: 연도 = ${filterYears.join(', ')}년`)
+  if (!filterDocNo && !filterYears) console.log(`시작 행: ${fromRow}, 최대: ${limit === Infinity ? '전체' : limit}행`)
+  console.log()
 
   // Supabase 클라이언트
   const supabase = createClient(
@@ -169,6 +178,15 @@ async function main() {
     if (!docNo || docNo === '의뢰번호') {
       skipped++
       continue
+    }
+
+    // --doc-no 필터
+    if (filterDocNo && docNo !== filterDocNo) continue
+
+    // --years 필터
+    if (filterYears) {
+      const year = docNo.match(/^(\d{2})-/)?.[1]
+      if (!year || !filterYears.includes(year)) continue
     }
 
     const siteNameRaw = row[COL.SITE_NAME] ? String(row[COL.SITE_NAME]).trim() : null
