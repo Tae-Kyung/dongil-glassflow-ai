@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import type { ItemStatus } from '@/types'
+import type { QuickFilter } from '@/components/StatsBar'
 
 const STATUS_OPTIONS = [
   { value: 'all', label: '전체 상태' },
@@ -37,9 +38,10 @@ const DEFAULT_FILTERS: Filters = {
 
 interface Props {
   refreshKey?: number
+  quickFilter?: QuickFilter
 }
 
-export function OrdersTable({ refreshKey }: Props = {}) {
+export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
   const [items, setItems] = useState<ItemStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
@@ -51,19 +53,43 @@ export function OrdersTable({ refreshKey }: Props = {}) {
   const fetchItems = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
-    if (filters.site_name)   params.set('site_name', filters.site_name)
-    if (filters.customer)    params.set('customer', filters.customer)
-    if (filters.status !== 'all') params.set('status', filters.status)
-    if (filters.date_from)   params.set('date_from', filters.date_from)
-    if (filters.date_to)     params.set('date_to', filters.date_to)
-    if (filters.include_past) params.set('include_past', 'true')
+
+    if (quickFilter === 'overdue') {
+      params.set('overdue', 'true')
+    } else if (quickFilter === 'this_week') {
+      const today = new Date().toISOString().slice(0, 10)
+      const weekLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      params.set('date_from', today)
+      params.set('date_to', weekLater)
+    } else if (quickFilter === 'this_month') {
+      const now = new Date()
+      const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10)
+      params.set('date_from', monthStart)
+      params.set('date_to', monthEnd)
+      params.set('include_past', 'true')
+    } else {
+      if (filters.site_name)    params.set('site_name', filters.site_name)
+      if (filters.customer)     params.set('customer', filters.customer)
+      if (filters.status !== 'all') params.set('status', filters.status)
+      if (filters.date_from)    params.set('date_from', filters.date_from)
+      if (filters.date_to)      params.set('date_to', filters.date_to)
+      if (filters.include_past) params.set('include_past', 'true')
+    }
+
+    // 검색 필터는 quickFilter와 함께도 적용
+    if (quickFilter) {
+      if (filters.site_name) params.set('site_name', filters.site_name)
+      if (filters.customer)  params.set('customer', filters.customer)
+      if (filters.status !== 'all') params.set('status', filters.status)
+    }
 
     const res = await fetch(`/api/items?${params}`)
     if (res.ok) setItems(await res.json())
     setLoading(false)
-  }, [filters])
+  }, [filters, quickFilter])
 
-  useEffect(() => { fetchItems() }, [fetchItems, refreshKey])
+  useEffect(() => { fetchItems() }, [fetchItems, refreshKey, quickFilter])
 
   // Supabase Realtime 구독
   useEffect(() => {
@@ -151,10 +177,19 @@ export function OrdersTable({ refreshKey }: Props = {}) {
       <div className="flex items-center justify-between text-sm text-gray-500">
         <span>
           {loading ? '로딩 중...' : `${items.length}건`}
-          {!filters.include_past && !filters.date_from && (
+          {!quickFilter && !filters.include_past && !filters.date_from && (
             <span className="ml-1 text-gray-400">(납기 {today()} 이후)</span>
           )}
         </span>
+        {quickFilter && (
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+            quickFilter === 'overdue'    ? 'bg-red-100 text-red-600' :
+            quickFilter === 'this_week'  ? 'bg-amber-100 text-amber-600' :
+                                          'bg-blue-100 text-blue-600'
+          }`}>
+            {{ overdue: '납기 초과', this_week: '이번주 납기', this_month: '이번달 납기' }[quickFilter]} 필터 적용중
+          </span>
+        )}
       </div>
 
       {/* 테이블 */}

@@ -3,12 +3,14 @@
 import { useState } from 'react'
 import { OrdersTable } from '@/components/OrdersTable'
 import { StatsBar } from '@/components/StatsBar'
+import type { QuickFilter } from '@/components/StatsBar'
 import { UploadModal } from '@/components/UploadModal'
 import Link from 'next/link'
 
 export default function DashboardPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>(null)
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -41,12 +43,12 @@ export default function DashboardPage() {
 
       {/* 메인 */}
       <main className="p-6">
-        <StatsBar />
+        <StatsBar activeFilter={quickFilter} onFilterChange={setQuickFilter} />
         <div className="mb-6">
           <h2 className="text-xl font-bold text-gray-900">발주 현황</h2>
           <p className="text-sm text-gray-500 mt-1">행 클릭 시 생산·출고 로그를 입력할 수 있습니다.</p>
         </div>
-        <OrdersTable refreshKey={refreshKey} />
+        <OrdersTable refreshKey={refreshKey} quickFilter={quickFilter} />
       </main>
 
       <UploadModal

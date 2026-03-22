@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npx:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(find /c/Users/misoh/OneDrive/Desktop/workspace/dongil-glassflow-ai -type f -name *.sql)"
     ]
   }
 }

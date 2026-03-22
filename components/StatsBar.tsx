@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react'
 
+export type QuickFilter = 'overdue' | 'this_week' | 'this_month' | null
+
 interface Stats {
   status_counts: {
     pending: number
@@ -18,12 +20,20 @@ interface Stats {
   this_month_produced_qty: number
 }
 
-export function StatsBar() {
+interface Props {
+  activeFilter: QuickFilter
+  onFilterChange: (filter: QuickFilter) => void
+}
+
+export function StatsBar({ activeFilter, onFilterChange }: Props) {
   const [stats, setStats] = useState<Stats | null>(null)
 
   useEffect(() => {
     fetch('/api/stats').then((r) => r.json()).then(setStats)
   }, [])
+
+  const toggle = (filter: QuickFilter) =>
+    onFilterChange(activeFilter === filter ? null : filter)
 
   if (!stats) {
     return (
@@ -43,36 +53,61 @@ export function StatsBar() {
 
   return (
     <div className="space-y-3 mb-6">
-      {/* 액션 지표 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+
         {/* 납기 초과 */}
-        <div className={`rounded-xl border p-4 ${stats.overdue > 0 ? 'bg-red-50 border-red-200' : 'bg-white'}`}>
+        <button
+          onClick={() => toggle('overdue')}
+          className={`text-left rounded-xl border p-4 transition-all ${
+            activeFilter === 'overdue'
+              ? 'ring-2 ring-red-400 bg-red-50 border-red-200'
+              : stats.overdue > 0
+                ? 'bg-red-50 border-red-200 hover:ring-2 hover:ring-red-300'
+                : 'bg-white hover:bg-gray-50'
+          }`}
+        >
           <p className="text-xs font-medium text-gray-500 mb-1">납기 초과</p>
           <p className={`text-2xl font-bold ${stats.overdue > 0 ? 'text-red-600' : 'text-gray-400'}`}>
             {stats.overdue.toLocaleString()}건
           </p>
-          <p className="text-xs text-gray-400 mt-1">미출고 기준</p>
-        </div>
+          <p className="text-xs text-gray-400 mt-1">미출고 기준 {activeFilter === 'overdue' && <span className="text-red-500 font-medium">· 필터중</span>}</p>
+        </button>
 
         {/* 이번주 납기 */}
-        <div className={`rounded-xl border p-4 ${stats.due_this_week > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white'}`}>
+        <button
+          onClick={() => toggle('this_week')}
+          className={`text-left rounded-xl border p-4 transition-all ${
+            activeFilter === 'this_week'
+              ? 'ring-2 ring-amber-400 bg-amber-50 border-amber-200'
+              : stats.due_this_week > 0
+                ? 'bg-amber-50 border-amber-200 hover:ring-2 hover:ring-amber-300'
+                : 'bg-white hover:bg-gray-50'
+          }`}
+        >
           <p className="text-xs font-medium text-gray-500 mb-1">이번주 납기</p>
           <p className={`text-2xl font-bold ${stats.due_this_week > 0 ? 'text-amber-600' : 'text-gray-400'}`}>
             {stats.due_this_week.toLocaleString()}건
           </p>
-          <p className="text-xs text-gray-400 mt-1">7일 이내 미출고</p>
-        </div>
+          <p className="text-xs text-gray-400 mt-1">7일 이내 미출고 {activeFilter === 'this_week' && <span className="text-amber-500 font-medium">· 필터중</span>}</p>
+        </button>
 
         {/* 이번달 납기 */}
-        <div className="bg-white rounded-xl border p-4">
+        <button
+          onClick={() => toggle('this_month')}
+          className={`text-left rounded-xl border p-4 transition-all ${
+            activeFilter === 'this_month'
+              ? 'ring-2 ring-blue-400 bg-blue-50 border-blue-100'
+              : 'bg-white hover:bg-gray-50'
+          }`}
+        >
           <p className="text-xs font-medium text-gray-500 mb-1">이번달 납기</p>
           <p className="text-2xl font-bold text-blue-600">
             {stats.this_month_count.toLocaleString()}건
           </p>
-          <p className="text-xs text-gray-400 mt-1">완료 {stats.this_month_done_count}건</p>
-        </div>
+          <p className="text-xs text-gray-400 mt-1">완료 {stats.this_month_done_count}건 {activeFilter === 'this_month' && <span className="text-blue-500 font-medium">· 필터중</span>}</p>
+        </button>
 
-        {/* 이번달 생산 완료율 */}
+        {/* 이번달 생산 완료율 (클릭 없음) */}
         <div className="bg-white rounded-xl border p-4">
           <p className="text-xs font-medium text-gray-500 mb-1">이번달 생산 완료율</p>
           <p className="text-2xl font-bold text-gray-800">{productionRate}%</p>
@@ -88,7 +123,7 @@ export function StatsBar() {
         </div>
       </div>
 
-      {/* 전체 파이프라인 상태 */}
+      {/* 전체 파이프라인 */}
       <div className="bg-white rounded-xl border px-5 py-3 flex flex-wrap items-center gap-x-6 gap-y-2">
         <span className="text-xs font-medium text-gray-400">전체 파이프라인</span>
         <PipelineItem label="생산대기" count={sc.pending}     color="text-gray-500"   dot="bg-gray-300" />
