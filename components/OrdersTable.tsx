@@ -29,12 +29,14 @@ interface Filters {
   include_past: boolean
 }
 
-const today = () => new Date().toISOString().slice(0, 10)
+const todayStr = () => new Date().toISOString().slice(0, 10)
 
 const DEFAULT_FILTERS: Filters = {
   site_name: '', customer: '', status: 'all',
   date_from: '', date_to: '', include_past: false,
 }
+
+const PAGE_SIZE = 50
 
 interface Props {
   refreshKey?: number
@@ -43,6 +45,8 @@ interface Props {
 
 export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
   const [items, setItems] = useState<ItemStatus[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -50,10 +54,9 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
   const [panelOpen, setPanelOpen] = useState(false)
   const [docNoSort, setDocNoSort] = useState<'asc' | 'desc' | null>('desc')
 
-  const fetchItems = useCallback(async () => {
+  const fetchItems = useCallback(async (targetPage = page) => {
     setLoading(true)
     const params = new URLSearchParams()
-
     const yearStart = `${new Date().getFullYear()}-01-01`
 
     if (quickFilter === 'overdue') {
@@ -79,12 +82,12 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
       params.set('include_past', 'true')
       params.set('status', status)
     } else {
-      if (filters.site_name)    params.set('site_name', filters.site_name)
-      if (filters.customer)     params.set('customer', filters.customer)
+      if (filters.site_name)        params.set('site_name', filters.site_name)
+      if (filters.customer)         params.set('customer', filters.customer)
       if (filters.status !== 'all') params.set('status', filters.status)
-      if (filters.date_from)    params.set('date_from', filters.date_from)
-      if (filters.date_to)      params.set('date_to', filters.date_to)
-      if (filters.include_past) params.set('include_past', 'true')
+      if (filters.date_from)        params.set('date_from', filters.date_from)
+      if (filters.date_to)          params.set('date_to', filters.date_to)
+      if (filters.include_past)     params.set('include_past', 'true')
     }
 
     // 검색 필터는 quickFilter와 함께도 적용
@@ -94,23 +97,36 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
       if (filters.status !== 'all') params.set('status', filters.status)
     }
 
-    const res = await fetch(`/api/items?${params}`)
-    if (res.ok) setItems(await res.json())
-    setLoading(false)
-  }, [filters, quickFilter])
+    params.set('page', String(targetPage))
+    params.set('page_size', String(PAGE_SIZE))
 
-  useEffect(() => { fetchItems() }, [fetchItems, refreshKey, quickFilter])
+    const res = await fetch(`/api/items?${params}`)
+    if (res.ok) {
+      const json = await res.json()
+      setItems(json.data ?? [])
+      setTotal(json.total ?? 0)
+      setPage(targetPage)
+    }
+    setLoading(false)
+  }, [filters, quickFilter, page])
+
+  // 필터/quickFilter 변경 시 1페이지로 리셋
+  useEffect(() => {
+    fetchItems(1)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, quickFilter, refreshKey])
 
   // Supabase Realtime 구독
   useEffect(() => {
     const channel = supabase
       .channel('dashboard-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'glassflow_production_logs' }, () => fetchItems())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'glassflow_shipment_logs' }, () => fetchItems())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'glassflow_production_logs' }, () => fetchItems(page))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'glassflow_shipment_logs' }, () => fetchItems(page))
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
-  }, [fetchItems])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page])
 
   const handleRowClick = (item: ItemStatus) => {
     setSelectedItem(item)
@@ -129,6 +145,8 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
     if (docCmp !== 0) return docCmp
     return (STATUS_ORDER[a.status] ?? 0) - (STATUS_ORDER[b.status] ?? 0)
   })
+
+  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
     <div className="space-y-4">
@@ -183,12 +201,12 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
         </div>
       )}
 
-      {/* 결과 카운트 */}
+      {/* 결과 카운트 + 필터 뱃지 */}
       <div className="flex items-center justify-between text-sm text-gray-500">
         <span>
-          {loading ? '로딩 중...' : `${items.length}건`}
+          {loading ? '로딩 중...' : `총 ${total.toLocaleString()}건`}
           {!quickFilter && !filters.include_past && !filters.date_from && (
-            <span className="ml-1 text-gray-400">(납기 {today()} 이후)</span>
+            <span className="ml-1 text-gray-400">(납기 {todayStr()} 이후)</span>
           )}
         </span>
         {quickFilter && (
@@ -281,11 +299,48 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
         </Table>
       </div>
 
+      {/* 페이지네이션 */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm text-gray-500">
+          <span>{PAGE_SIZE * (page - 1) + 1}–{Math.min(PAGE_SIZE * page, total)} / {total.toLocaleString()}건</span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" onClick={() => fetchItems(1)} disabled={page === 1 || loading}>
+              «
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fetchItems(page - 1)} disabled={page === 1 || loading}>
+              ‹
+            </Button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const start = Math.max(1, Math.min(page - 2, totalPages - 4))
+              const p = start + i
+              return (
+                <Button
+                  key={p}
+                  variant={p === page ? 'default' : 'outline'}
+                  size="sm"
+                  className="w-8"
+                  onClick={() => fetchItems(p)}
+                  disabled={loading}
+                >
+                  {p}
+                </Button>
+              )
+            })}
+            <Button variant="outline" size="sm" onClick={() => fetchItems(page + 1)} disabled={page === totalPages || loading}>
+              ›
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fetchItems(totalPages)} disabled={page === totalPages || loading}>
+              »
+            </Button>
+          </div>
+        </div>
+      )}
+
       <LogPanel
         item={selectedItem}
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
-        onUpdated={fetchItems}
+        onUpdated={() => fetchItems(page)}
       />
     </div>
   )
