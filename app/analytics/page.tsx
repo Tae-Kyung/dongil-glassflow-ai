@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { RiskRadar } from '@/components/RiskRadar'
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, BarChart,
@@ -81,6 +82,9 @@ export default function AnalyticsPage() {
           <h2 className="text-xl font-bold text-gray-900">경영 현황</h2>
           <p className="text-sm text-gray-500 mt-1">최근 12개월 납기 준수율 및 생산 실적</p>
         </div>
+
+        {/* 납기 위험 레이더 - 항상 최상단 */}
+        <RiskRadar />
 
         {loading ? (
           <div className="grid grid-cols-1 gap-6">
