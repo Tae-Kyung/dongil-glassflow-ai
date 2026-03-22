@@ -23,20 +23,27 @@ export async function GET() {
   const in7days   = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const yearStart = `${now.getFullYear()}-01-01`
 
-  // 납기 7일 이내(또는 초과) & 미출고 & 올해 데이터
-  const { data, error } = await supabaseAdmin
-    .from('glassflow_item_status')
-    .select('id, doc_no, site_name, customer, item_name, order_qty, total_produced_qty, due_date, status')
-    .gte('due_date', yearStart)
-    .lte('due_date', in7days)
-    .not('status', 'eq', 'shipped')
-    .not('due_date', 'is', null)
-    .order('due_date', { ascending: true })
-    .limit(200)
+  // 납기 7일 이내(또는 초과) & 미출고 & 올해 데이터 (전체 조회)
+  let all: any[] = []
+  let offset = 0
+  while (true) {
+    const { data, error } = await supabaseAdmin
+      .from('glassflow_item_status')
+      .select('id, doc_no, site_name, customer, item_name, order_qty, total_produced_qty, due_date, status')
+      .gte('due_date', yearStart)
+      .lte('due_date', in7days)
+      .not('status', 'eq', 'shipped')
+      .not('due_date', 'is', null)
+      .order('due_date', { ascending: true })
+      .range(offset, offset + 999)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data?.length) break
+    all = all.concat(data)
+    if (data.length < 1000) break
+    offset += 1000
+  }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  const items: RiskItem[] = (data ?? []).map((item) => {
+  const items: RiskItem[] = all.map((item) => {
     const due    = new Date(item.due_date)
     const todayD = new Date(today)
     const msPerDay = 24 * 60 * 60 * 1000
