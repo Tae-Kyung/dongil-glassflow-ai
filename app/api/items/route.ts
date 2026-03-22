@@ -15,11 +15,14 @@ export async function GET(request: NextRequest) {
   const today = new Date().toISOString().slice(0, 10)
   const yearStart = `${new Date().getFullYear()}-01-01`
 
+  // include_past(연도 필터 등) 사용 시 더 많은 데이터 허용
+  const limit = include_past ? 2000 : 500
+
   let query = supabaseAdmin
     .from('glassflow_item_status')
     .select('*')
     .order('due_date', { ascending: true })
-    .limit(500)
+    .limit(limit)
 
   if (overdue) {
     // 납기 초과: 올해 납기일 < 오늘 & 미출고
