@@ -7,6 +7,7 @@ import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, BarChart,
 } from 'recharts'
+import { LogoutButton } from '@/components/LogoutButton'
 
 interface MonthData {
   month: string
@@ -61,7 +62,7 @@ export default function AnalyticsPage() {
     <div className="min-h-screen bg-gray-50">
       {/* 헤더 */}
       <header className="bg-white border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <Link href="/dashboard" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white text-sm font-bold">G</span>
           </div>
@@ -69,7 +70,7 @@ export default function AnalyticsPage() {
             <h1 className="font-bold text-gray-900 text-lg leading-tight">GlassFlow AI</h1>
             <p className="text-xs text-gray-500">경영 현황</p>
           </div>
-        </div>
+        </Link>
         <nav className="flex gap-3">
           <Link href="/dashboard" className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
             대시보드
@@ -77,6 +78,7 @@ export default function AnalyticsPage() {
           <Link href="/chat" className="text-sm text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors">
             챗봇
           </Link>
+          <LogoutButton />
         </nav>
       </header>
 

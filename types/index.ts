@@ -20,6 +20,7 @@ export interface OrderDoc {
 export interface OrderItem {
   id: string
   doc_id: string
+  excel_row: number | null  // 엑셀 원본 행 번호 (1-based). doc_id + excel_row 복합 유일키
   item_no: number | null
   item_name: string | null
   width_mm: number | null
@@ -64,6 +65,7 @@ export interface ItemStatus {
   due_date: string | null
   item_no: number | null
   item_name: string | null
+  note: string | null
   width_mm: number | null
   height_mm: number | null
   order_qty: number

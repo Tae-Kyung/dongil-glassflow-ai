@@ -2,332 +2,242 @@
  * 발주현황.xlsx → Supabase DB 마이그레이션 스크립트
  *
  * 사용법:
- *   npx tsx scripts/migrate-excel.ts --dry-run                    # 드라이런 (DB 저장 없음)
- *   npx tsx scripts/migrate-excel.ts --run                      # 실제 저장
- *   npx tsx scripts/migrate-excel.ts --run --limit=100          # 처음 100행만
- *   npx tsx scripts/migrate-excel.ts --run --from=3178          # 특정 행부터
- *   npx tsx scripts/migrate-excel.ts --run --doc-no=25-3020     # 특정 의뢰번호만 재처리
- *   npx tsx scripts/migrate-excel.ts --run --years=24,25,26     # 특정 연도만 처리
+ *   npx tsx scripts/migrate-excel.ts --dry-run                    # 드라이런
+ *   npx tsx scripts/migrate-excel.ts --run                        # 전체 저장
+ *   npx tsx scripts/migrate-excel.ts --run --limit=100            # 처음 100행만
+ *   npx tsx scripts/migrate-excel.ts --run --from=3178            # 특정 행부터
+ *   npx tsx scripts/migrate-excel.ts --run --doc-no=25-3020       # 특정 의뢰번호만
+ *   npx tsx scripts/migrate-excel.ts --run --years=24,25,26       # 특정 연도만
+ *
+ * 최적화 전략:
+ *   - CHUNK_SIZE 단위로 묶어 배치 처리
+ *   - order_docs → order_items → logs 순으로 각 단계를 bulk upsert/insert
+ *   - 행당 4~6회 순차 호출 → 청크당 6회 호출로 ~100배 감소
  */
 
 import * as XLSX from 'xlsx'
 import path from 'path'
 import { createClient } from '@supabase/supabase-js'
 import * as dotenv from 'dotenv'
+import { parseWorksheet, type ParsedExcelRow } from '../lib/excel-parser'
 
 dotenv.config({ path: path.resolve(__dirname, '../.env.local') })
 
-// ── 설정 ──────────────────────────────────────────────────────
-const EXCEL_PATH = path.resolve(__dirname, '../docs/발주서.xlsx')
-const SHEET_NAME = '발주현황'
+const EXCEL_PATH  = path.resolve(__dirname, '../docs/발주서.xlsx')
+const SHEET_NAME  = '발주현황'
+const CHUNK_SIZE  = 100  // 배치 크기
 
-// 컬럼 인덱스 (0-based)
-const COL = {
-  DOC_NO:       0,   // A: 의뢰번호
-  CUSTOMER:     1,   // B: 거래처/업체명
-  SITE_NAME:    2,   // C: 현장명
-  ORDER_QTY:    3,   // D: 의뢰수량
-  ITEM_NAME:    6,   // G: 품명 (신형식 행 3178~)
-  TPS:          7,   // H: TPS 일자 (구형식) / 비고 (신형식)
-  ARRIVAL:     10,   // K: 주문서도착일
-  REQUEST_DATE:11,   // L: 생산의뢰일
-  DUE_DATE:    12,   // M: 납품요청일
-  PROD_START:  13,   // N: 생산 1회차 시작
-  PROD_END:    22,   // W: 생산 10회차 끝
-  SHIP_START:  23,   // X: 출고 1회차 시작
-  SHIP_END:    35,   // AJ: 출고 13회차 끝
+// ── 유틸 ─────────────────────────────────────────────────────
+function chunk<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size))
+  return chunks
 }
 
-// ── 날짜 파싱 ─────────────────────────────────────────────────
-function parseExcelDate(raw: unknown, docNo?: string): string | null {
-  if (!raw && raw !== 0) return null
-
-  // Excel 시리얼 숫자 (예: 44853)
-  if (typeof raw === 'number') {
-    const d = XLSX.SSF.parse_date_code(raw)
-    if (!d) return null
-    return `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`
-  }
-
-  const s = String(raw).trim()
-  if (!s) return null
-
-  // "MM월 DD일" 형식 → 연도는 의뢰번호 앞 2자리에서 추출 (예: "25-0001" → 2025)
-  const mdMatch = s.match(/^(\d{1,2})월\s*(\d{1,2})일$/)
-  if (mdMatch) {
-    const year = docNo ? inferYear(docNo) : new Date().getFullYear()
-    return `${year}-${String(Number(mdMatch[1])).padStart(2, '0')}-${String(Number(mdMatch[2])).padStart(2, '0')}`
-  }
-
-  // "YYYY-MM-DD" 형식
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s
-
-  return null
+function printProgress(done: number, total: number, inserted: number, updated: number, errCount: number) {
+  const pct    = total > 0 ? Math.floor((done / total) * 100) : 0
+  const filled = Math.floor(pct / 2)
+  const bar    = '█'.repeat(filled) + '░'.repeat(50 - filled)
+  process.stdout.write(
+    `\r[${bar}] ${pct}%  ${done}/${total}  신규:${inserted} 갱신:${updated} 오류:${errCount}`
+  )
 }
 
-function inferYear(docNo: string): number {
-  const m = docNo.match(/^(\d{2})-/)
-  if (m) return 2000 + Number(m[1])
-  return new Date().getFullYear()
-}
-
-// ── 생산/출고 셀 파싱 ─────────────────────────────────────────
-interface LogEntry {
-  seq: number
-  date: string | null
-  qty: number | null
-  is_completed: boolean
-  note: string | null
-}
-
-/**
- * "1/29 16조" → { date: "2025-01-29", qty: 16 }
- * "MM월 DD일" → { date: "2025-MM-DD", qty: order_qty }
- * "완료"      → { is_completed: true, qty: order_qty }
- * 숫자(엑셀 시리얼) → { date: "...", qty: order_qty }
- * 기타 텍스트 → { note: 텍스트 }
- */
-function parseLogCell(raw: unknown, seq: number, orderQty: number, docNo: string): LogEntry | null {
-  if (raw === undefined || raw === null || raw === '') return null
-
-  // 엑셀 시리얼 숫자 → 날짜, 수량=order_qty
-  if (typeof raw === 'number') {
-    const date = parseExcelDate(raw, docNo)
-    return { seq, date, qty: orderQty, is_completed: false, note: null }
-  }
-
-  const s = String(raw).trim()
-  if (!s) return null
-
-  // "완료"
-  if (s === '완료') {
-    return { seq, date: null, qty: orderQty, is_completed: true, note: null }
-  }
-
-  // "M/D N조" or "MM/DD N조" (예: "1/29 16조", "12/3 200조")
-  const slashQtyMatch = s.match(/^(\d{1,2})\/(\d{1,2})\s+(\d+)조?$/)
-  if (slashQtyMatch) {
-    const year = inferYear(docNo)
-    const date = `${year}-${String(Number(slashQtyMatch[1])).padStart(2, '0')}-${String(Number(slashQtyMatch[2])).padStart(2, '0')}`
-    return { seq, date, qty: Number(slashQtyMatch[3]), is_completed: false, note: null }
-  }
-
-  // "MM월 DD일" → 날짜만, 수량=order_qty
-  const mdMatch = s.match(/^(\d{1,2})월\s*(\d{1,2})일$/)
-  if (mdMatch) {
-    const date = parseExcelDate(raw, docNo)
-    return { seq, date, qty: orderQty, is_completed: false, note: null }
-  }
-
-  // 순수 숫자 문자열 → order_qty 로 간주 (수량만 기재된 경우)
-  if (/^\d+$/.test(s)) {
-    return { seq, date: null, qty: Number(s), is_completed: false, note: null }
-  }
-
-  // 기타 메모성 텍스트 (예: "5/16 전무님", "공장확인중")
-  return { seq, date: null, qty: null, is_completed: false, note: s }
-}
-
-// ── 메인 ──────────────────────────────────────────────────────
+// ── 메인 ─────────────────────────────────────────────────────
 async function main() {
-  const args = process.argv.slice(2)
-  const isDryRun  = !args.includes('--run')
-  const limitArg  = args.find((a) => a.startsWith('--limit='))
-  const fromArg   = args.find((a) => a.startsWith('--from='))
-  const docNoArg  = args.find((a) => a.startsWith('--doc-no='))
-  const yearsArg  = args.find((a) => a.startsWith('--years='))
-  const limit     = limitArg ? Number(limitArg.split('=')[1]) : Infinity
-  const fromRow   = fromArg  ? Number(fromArg.split('=')[1])  : 1
-  const filterDocNo   = docNoArg ? docNoArg.split('=')[1] : null
-  const filterYears   = yearsArg ? yearsArg.split('=')[1].split(',').map((y) => y.trim()) : null
+  const args        = process.argv.slice(2)
+  const isDryRun    = !args.includes('--run')
+  const limitArg    = args.find(a => a.startsWith('--limit='))
+  const fromArg     = args.find(a => a.startsWith('--from='))
+  const docNoArg    = args.find(a => a.startsWith('--doc-no='))
+  const yearsArg    = args.find(a => a.startsWith('--years='))
+  const limit       = limitArg ? Number(limitArg.split('=')[1]) : Infinity
+  const fromRow     = fromArg  ? Number(fromArg.split('=')[1]) - 1 : 1
+  const filterDocNo = docNoArg ? docNoArg.split('=')[1] : null
+  const filterYears = yearsArg ? yearsArg.split('=')[1].split(',').map(y => y.trim()) : null
 
   console.log(`\n=== GlassFlow Excel Migration ===`)
-  console.log(`모드: ${isDryRun ? 'DRY-RUN (저장 없음)' : '실제 저장'}`)
+  console.log(`모드: ${isDryRun ? 'DRY-RUN (저장 없음)' : '실제 저장 (배치 처리)'}`)
   console.log(`파일: ${EXCEL_PATH}`)
-  if (filterDocNo)  console.log(`필터: 의뢰번호 = ${filterDocNo}`)
-  if (filterYears)  console.log(`필터: 연도 = ${filterYears.join(', ')}년`)
-  if (!filterDocNo && !filterYears) console.log(`시작 행: ${fromRow}, 최대: ${limit === Infinity ? '전체' : limit}행`)
+  if (filterDocNo) console.log(`필터: 의뢰번호 = ${filterDocNo}`)
+  if (filterYears) console.log(`필터: 연도 = ${filterYears.join(', ')}년`)
   console.log()
 
-  // Supabase 클라이언트
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  // Excel 읽기
+  // Excel 파싱
   const wb = XLSX.readFile(EXCEL_PATH)
   const ws = wb.Sheets[SHEET_NAME]
   if (!ws) throw new Error(`시트 '${SHEET_NAME}'를 찾을 수 없습니다.`)
 
-  const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: false, defval: null })
-  console.log(`전체 행수: ${raw.length}`)
+  let rows = parseWorksheet(ws, fromRow)
 
-  // 통계
-  let processed = 0, inserted = 0, skipped = 0
-  const errors: Array<{ row: number; reason: string }> = []
-  const deletedDocIds = new Set<string>()  // doc_id별 첫 삽입 시만 기존 items 삭제
+  if (filterDocNo) rows = rows.filter(r => r.doc_no === filterDocNo)
+  if (filterYears) rows = rows.filter(r => {
+    const y = r.doc_no.match(/^(\d{2})-/)?.[1]
+    return y ? filterYears.includes(y) : false
+  })
+  if (limit !== Infinity) rows = rows.slice(0, limit)
 
-  for (let i = fromRow; i < raw.length; i++) {
-    if (processed >= limit) break
+  const total = rows.length
+  console.log(`처리 대상: ${total}행 (청크 크기: ${CHUNK_SIZE})\n`)
 
-    const row = raw[i] as (string | number | null)[]
-
-    // 빈 행 / 헤더 행 스킵
-    const docNo = row[COL.DOC_NO] ? String(row[COL.DOC_NO]).trim() : null
-    if (!docNo || docNo === '의뢰번호') {
-      skipped++
-      continue
-    }
-
-    // --doc-no 필터
-    if (filterDocNo && docNo !== filterDocNo) continue
-
-    // --years 필터
-    if (filterYears) {
-      const year = docNo.match(/^(\d{2})-/)?.[1]
-      if (!year || !filterYears.includes(year)) continue
-    }
-
-    const siteNameRaw = row[COL.SITE_NAME] ? String(row[COL.SITE_NAME]).trim() : null
-    if (!siteNameRaw) {
-      skipped++
-      continue
-    }
-
-    const orderQtyRaw = row[COL.ORDER_QTY]
-    const orderQty = orderQtyRaw ? Number(String(orderQtyRaw).replace(/[^0-9]/g, '')) : 0
-
-    // 날짜 파싱
-    const tpsDate      = parseExcelDate(row[COL.TPS], docNo)
-    const arrivalDate  = parseExcelDate(row[COL.ARRIVAL], docNo)
-    const requestDate  = parseExcelDate(row[COL.REQUEST_DATE], docNo)
-    const dueDate      = parseExcelDate(row[COL.DUE_DATE], docNo)
-
-    // 생산 로그 파싱 (N~W, 10칸)
-    const prodLogs: LogEntry[] = []
-    for (let c = COL.PROD_START; c <= COL.PROD_END; c++) {
-      const seq = c - COL.PROD_START + 1
-      const entry = parseLogCell(row[c], seq, orderQty, docNo)
-      if (entry) prodLogs.push(entry)
-    }
-
-    // 출고 로그 파싱 (X~AJ, 13칸)
-    const shipLogs: LogEntry[] = []
-    for (let c = COL.SHIP_START; c <= COL.SHIP_END; c++) {
-      const seq = c - COL.SHIP_START + 1
-      const entry = parseLogCell(row[c], seq, orderQty, docNo)
-      if (entry) shipLogs.push(entry)
-    }
-
-    processed++
-
-    if (isDryRun) {
-      console.log(`[DRY] row ${i + 1} | ${docNo} | ${siteNameRaw} | qty:${orderQty} | prod:${prodLogs.length} | ship:${shipLogs.length}`)
-      continue
-    }
-
-    // ── DB 저장 ──
-    try {
-      // 1. order_docs upsert
-      const { data: docData, error: docErr } = await supabase
-        .from('glassflow_order_docs')
-        .upsert(
-          {
-            doc_no: docNo,
-            customer: row[COL.CUSTOMER] ? String(row[COL.CUSTOMER]).trim() : null,
-            site_name: siteNameRaw,
-            request_date: requestDate,
-            due_date: dueDate,
-            tps_date: tpsDate,
-            arrival_date: arrivalDate,
-            source: 'excel',
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'doc_no' }
-        )
-        .select('id')
-        .single()
-
-      if (docErr || !docData) {
-        errors.push({ row: i + 1, reason: `order_docs upsert: ${docErr?.message}` })
-        continue
-      }
-
-      const docId = docData.id
-
-      // 2. order_items insert (같은 doc_id의 첫 행에서만 기존 items 삭제)
-      if (!deletedDocIds.has(docId)) {
-        await supabase.from('glassflow_order_items').delete().eq('doc_id', docId)
-        deletedDocIds.add(docId)
-      }
-
-      const itemName = row[COL.ITEM_NAME] ? String(row[COL.ITEM_NAME]).trim() : null
-
-      const { data: itemData, error: itemErr } = await supabase
-        .from('glassflow_order_items')
-        .insert({ doc_id: docId, item_name: itemName, order_qty: orderQty || null })
-        .select('id')
-        .single()
-
-      if (itemErr || !itemData) {
-        errors.push({ row: i + 1, reason: `order_items insert: ${itemErr?.message}` })
-        continue
-      }
-
-      const itemId = itemData.id
-
-      // 3. production_logs
-      if (prodLogs.length > 0) {
-        await supabase.from('glassflow_production_logs').delete().eq('item_id', itemId)
-        const validProd = prodLogs.filter((l) => l.qty !== null)
-        if (validProd.length > 0) {
-          await supabase.from('glassflow_production_logs').insert(
-            validProd.map((l) => ({
-              item_id:       itemId,
-              seq:           l.seq,
-              produced_date: l.date,
-              produced_qty:  l.qty!,
-              is_completed:  l.is_completed,
-              note:          l.note,
-              updated_at:    new Date().toISOString(),
-            }))
-          )
-        }
-      }
-
-      // 4. shipment_logs
-      if (shipLogs.length > 0) {
-        await supabase.from('glassflow_shipment_logs').delete().eq('item_id', itemId)
-        const validShip = shipLogs.filter((l) => l.qty !== null)
-        if (validShip.length > 0) {
-          await supabase.from('glassflow_shipment_logs').insert(
-            validShip.map((l) => ({
-              item_id:      itemId,
-              seq:          l.seq,
-              shipped_date: l.date,
-              shipped_qty:  l.qty!,
-              note:         l.note,
-              updated_at:   new Date().toISOString(),
-            }))
-          )
-        }
-      }
-
-      inserted++
-      if (inserted % 100 === 0) console.log(`  저장: ${inserted}행 완료...`)
-    } catch (e) {
-      errors.push({ row: i + 1, reason: String(e) })
-    }
+  if (isDryRun) {
+    rows.slice(0, 20).forEach(r =>
+      console.log(`[DRY] row ${r.excel_row} | ${r.doc_no} | ${r.site_name} | qty:${r.order_qty} | prod:${r.prod_logs.length} | ship:${r.ship_logs.length}`)
+    )
+    if (rows.length > 20) console.log(`  ... 외 ${rows.length - 20}행`)
+    return
   }
 
-  // ── 결과 리포트 ──
-  console.log('\n=== 완료 ===')
-  console.log(`처리: ${processed}행 | 저장: ${inserted}행 | 스킵: ${skipped}행 | 오류: ${errors.length}건`)
+  let inserted = 0, updated = 0
+  const errors: Array<{ row: number; reason: string }> = []
+  let done = 0
 
+  for (const chunkRows of chunk(rows, CHUNK_SIZE)) {
+    // ── STEP 1: order_docs 배치 upsert ──────────────────────
+    // 같은 청크 내 동일 doc_no 중복 제거 (마지막 행 우선)
+    const docMap = new Map<string, ParsedExcelRow>()
+    for (const r of chunkRows) docMap.set(r.doc_no, r)
+    const uniqueDocs = [...docMap.values()]
+
+    const { data: docResults, error: docErr } = await supabase
+      .from('glassflow_order_docs')
+      .upsert(
+        uniqueDocs.map(r => ({
+          doc_no:       r.doc_no,
+          customer:     r.customer,
+          site_name:    r.site_name,
+          request_date: r.request_date,
+          due_date:     r.due_date,
+          tps_date:     r.tps_date,
+          arrival_date: r.arrival_date,
+          source:       'excel',
+          updated_at:   new Date().toISOString(),
+        })),
+        { onConflict: 'doc_no' }
+      )
+      .select('id, doc_no, created_at, updated_at')
+
+    if (docErr || !docResults) {
+      chunkRows.forEach(r => errors.push({ row: r.excel_row, reason: `order_docs: ${docErr?.message}` }))
+      done += chunkRows.length
+      printProgress(done, total, inserted, updated, errors.length)
+      continue
+    }
+
+    // doc_no → { id, isNew } 매핑
+    const docIdMap = new Map(
+      docResults.map(d => [d.doc_no, { id: d.id, isNew: d.created_at === d.updated_at }])
+    )
+
+    // ── STEP 2: order_items 배치 upsert ─────────────────────
+    const validRows = chunkRows.filter(r => docIdMap.has(r.doc_no))
+    const itemPayload = validRows.map(r => ({
+      doc_id:     docIdMap.get(r.doc_no)!.id,
+      excel_row:  r.excel_row,
+      item_name:  r.item_name,
+      note:       r.note,
+      order_qty:  r.order_qty || null,
+      area_m2:    r.area_m2,
+      updated_at: new Date().toISOString(),
+    }))
+
+    const { data: itemResults, error: itemErr } = await supabase
+      .from('glassflow_order_items')
+      .upsert(itemPayload, { onConflict: 'doc_id,excel_row' })
+      .select('id, doc_id, excel_row')
+
+    if (itemErr || !itemResults) {
+      validRows.forEach(r => errors.push({ row: r.excel_row, reason: `order_items: ${itemErr?.message}` }))
+      done += chunkRows.length
+      printProgress(done, total, inserted, updated, errors.length)
+      continue
+    }
+
+    // (doc_id, excel_row) → item_id 매핑
+    const itemIdMap = new Map(
+      itemResults.map(i => [`${i.doc_id}:${i.excel_row}`, i.id])
+    )
+
+    // ── STEP 3: 로그 처리 (logs 있는 행만) ──────────────────
+    const rowsWithProd = validRows.filter(r => r.prod_logs.length > 0)
+    const rowsWithShip = validRows.filter(r => r.ship_logs.length > 0)
+
+    if (rowsWithProd.length > 0) {
+      const prodItemIds = rowsWithProd
+        .map(r => itemIdMap.get(`${docIdMap.get(r.doc_no)!.id}:${r.excel_row}`))
+        .filter((id): id is string => !!id)
+
+      // 기존 로그 일괄 삭제
+      await supabase.from('glassflow_production_logs').delete().in('item_id', prodItemIds)
+
+      // 신규 로그 일괄 삽입
+      const prodInsert = rowsWithProd.flatMap(r => {
+        const itemId = itemIdMap.get(`${docIdMap.get(r.doc_no)!.id}:${r.excel_row}`)
+        if (!itemId) return []
+        return r.prod_logs
+          .filter(l => l.qty !== null)
+          .map(l => ({
+            item_id:       itemId,
+            seq:           l.seq,
+            produced_date: l.date,
+            produced_qty:  l.qty!,
+            is_completed:  l.is_completed,
+            note:          l.note,
+            updated_at:    new Date().toISOString(),
+          }))
+      })
+      if (prodInsert.length > 0) {
+        await supabase.from('glassflow_production_logs').insert(prodInsert)
+      }
+    }
+
+    if (rowsWithShip.length > 0) {
+      const shipItemIds = rowsWithShip
+        .map(r => itemIdMap.get(`${docIdMap.get(r.doc_no)!.id}:${r.excel_row}`))
+        .filter((id): id is string => !!id)
+
+      await supabase.from('glassflow_shipment_logs').delete().in('item_id', shipItemIds)
+
+      const shipInsert = rowsWithShip.flatMap(r => {
+        const itemId = itemIdMap.get(`${docIdMap.get(r.doc_no)!.id}:${r.excel_row}`)
+        if (!itemId) return []
+        return r.ship_logs
+          .filter(l => l.qty !== null)
+          .map(l => ({
+            item_id:      itemId,
+            seq:          l.seq,
+            shipped_date: l.date,
+            shipped_qty:  l.qty!,
+            note:         l.note,
+            updated_at:   new Date().toISOString(),
+          }))
+      })
+      if (shipInsert.length > 0) {
+        await supabase.from('glassflow_shipment_logs').insert(shipInsert)
+      }
+    }
+
+    // ── 카운트 집계 ─────────────────────────────────────────
+    for (const r of validRows) {
+      const doc = docIdMap.get(r.doc_no)
+      if (doc?.isNew) inserted++
+      else updated++
+    }
+    done += chunkRows.length
+    printProgress(done, total, inserted, updated, errors.length)
+  }
+
+  process.stdout.write('\n')
+  console.log('\n=== 완료 ===')
+  console.log(`신규: ${inserted}행 | 갱신: ${updated}행 | 오류: ${errors.length}건`)
   if (errors.length > 0) {
     console.log('\n[오류 목록]')
-    errors.slice(0, 20).forEach((e) => console.log(`  row ${e.row}: ${e.reason}`))
+    errors.slice(0, 20).forEach(e => console.log(`  row ${e.row}: ${e.reason}`))
     if (errors.length > 20) console.log(`  ... 외 ${errors.length - 20}건`)
   }
 }

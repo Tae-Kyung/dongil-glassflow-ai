@@ -5,6 +5,7 @@ import { OrdersTable } from '@/components/OrdersTable'
 import { StatsBar } from '@/components/StatsBar'
 import type { QuickFilter } from '@/components/StatsBar'
 import { UploadModal } from '@/components/UploadModal'
+import { LogoutButton } from '@/components/LogoutButton'
 import Link from 'next/link'
 
 export default function DashboardPage() {
@@ -16,7 +17,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-gray-50">
       {/* 헤더 */}
       <header className="bg-white border-b px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
+        <Link href="/dashboard" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white text-sm font-bold">G</span>
           </div>
@@ -24,7 +25,7 @@ export default function DashboardPage() {
             <h1 className="font-bold text-gray-900 text-lg leading-tight">GlassFlow AI</h1>
             <p className="text-xs text-gray-500">담당자 대시보드</p>
           </div>
-        </div>
+        </Link>
         <nav className="flex gap-3">
           <Link
             href="/analytics"
@@ -44,6 +45,7 @@ export default function DashboardPage() {
           >
             발주서 업로드
           </button>
+          <LogoutButton />
         </nav>
       </header>
 

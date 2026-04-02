@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
-// GET /api/items?site_name=&customer=&status=&date_from=&date_to=&include_past=&overdue=&page=&page_size=
+// GET /api/items?site_name=&customer=&status=&keyword=&date_from=&date_to=&include_past=&overdue=&page=&page_size=
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const site_name    = searchParams.get('site_name')
   const customer     = searchParams.get('customer')
   const status       = searchParams.get('status')
+  const keyword      = searchParams.get('keyword')   // item_name, note 통합 검색
   const date_from    = searchParams.get('date_from')
   const date_to      = searchParams.get('date_to')
   const include_past = searchParams.get('include_past') === 'true'
@@ -38,6 +39,11 @@ export async function GET(request: NextRequest) {
   if (site_name) query = query.ilike('site_name', `%${site_name}%`)
   if (customer)  query = query.ilike('customer', `%${customer}%`)
   if (status)    query = query.eq('status', status)
+
+  // 비고/품명 통합 키워드 검색 (item_name OR note)
+  if (keyword) {
+    query = query.or(`item_name.ilike.%${keyword}%,note.ilike.%${keyword}%`)
+  }
 
   const { data, count, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -24,6 +24,7 @@ interface Filters {
   site_name: string
   customer: string
   status: string
+  keyword: string
   date_from: string
   date_to: string
   include_past: boolean
@@ -33,7 +34,7 @@ const todayStr = () => new Date().toISOString().slice(0, 10)
 
 const DEFAULT_FILTERS: Filters = {
   site_name: '', customer: '', status: 'all',
-  date_from: '', date_to: '', include_past: false,
+  keyword: '', date_from: '', date_to: '', include_past: false,
 }
 
 const PAGE_SIZE = 50
@@ -89,6 +90,9 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
       if (filters.date_to)          params.set('date_to', filters.date_to)
       if (filters.include_past)     params.set('include_past', 'true')
     }
+
+    // keyword는 quickFilter와 관계없이 항상 적용
+    if (filters.keyword) params.set('keyword', filters.keyword)
 
     // 검색 필터는 quickFilter와 함께도 적용
     if (quickFilter) {
@@ -187,7 +191,7 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
 
       {/* 고급 검색 */}
       {showAdvanced && (
-        <div className="flex gap-2 flex-wrap p-3 bg-gray-50 rounded-lg border">
+        <div className="flex gap-3 flex-wrap p-3 bg-gray-50 rounded-lg border">
           <div className="flex items-center gap-2">
             <span className="text-sm text-gray-600 whitespace-nowrap">납기일</span>
             <Input type="date" value={filters.date_from}
@@ -198,6 +202,12 @@ export function OrdersTable({ refreshKey, quickFilter }: Props = {}) {
               onChange={(e) => setFilters({ ...filters, date_to: e.target.value })}
               className="w-40" />
           </div>
+          <Input
+            placeholder="비고/품명 검색 (동호수, 규격 등)"
+            value={filters.keyword}
+            onChange={(e) => setFilters({ ...filters, keyword: e.target.value })}
+            className="w-56"
+          />
         </div>
       )}
 
